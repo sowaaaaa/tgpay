@@ -1,0 +1,14 @@
+{
+    "ref_procent": {
+        "ua":{
+            "cold": "50",
+            "warm": "15",
+            "hot": "10"
+        },
+        "eSIM":{
+            "cold": "50",
+            "warm": "20",
+            "hot": "10"
+        }},
+    "ref_hryvnia": "0.09"
+}
