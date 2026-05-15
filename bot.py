@@ -5299,59 +5299,47 @@ id: {chat_id}
                 print(call.message)
                 bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
                 date = datetime.now().date().strftime('%d.%m.%Y')
-                try:
-                    logging.info("СЮДА")
-                    sum_bez_com = call.message.text.split('Сумма без комисии: ')[1].split('\n')[0]
+                if "Украина" in usluga:
+                    referer = get_ref_user(id)
+                    ua_ref_earned = 0
+                    if referer:
+                        user_type_before = get_user_type(id)
+                        ua_ref_earned = add_balance_ref_with_type(id, float(sum), 'ua', user_type_before)
+                        bot.send_message(referer, f'<b>🎉 Вы получили <code>{ua_ref_earned}</code> руб за реферала!</b>\n id:<code>{id}</code>\n Товар: Мобильный Украина', parse_mode="HTML")
                     try:
+                        sum_grn = call.message.text.split('Сумма в грн.: ')[1].split('\n')[0]
+                    except Exception:
+                        sum_grn = '—'
+                    try:
+                        uah_rate = _uah_cost_rate_cache or get_uah_cost_rate()
+                        sebest_rub = round(float(sum_grn) * float(uah_rate), 2)
+                        profit_val = round(float(sum) - sebest_rub, 2)
+                        sebest = f'{sum_grn} ₴ = {sebest_rub} ₽ (курс {uah_rate})'
+                        profit = f'{profit_val} ₽'
+                    except Exception:
+                        sebest = '—'
+                        profit = '—'
+                    ref_note = f'\n👥 Реферал: -{ua_ref_earned} ₽' if ua_ref_earned else ''
+                    send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма в грн.: {sum_grn}\nСумма в руб.: {sum}\n💰Себестоимость: {sebest}\n📈Чистая прибыль: {profit}{ref_note}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
+                elif "Интернет" in usluga:
+                    try:
+                        cost_str = call.message.text.split('💰Себестоимость: ')[1].split('\n')[0]
+                        profit_str2 = call.message.text.split('📈Чистая прибыль: ')[1].split('\n')[0]
+                        profit_line2 = f'\n💰Себестоимость: {cost_str}\n📈Чистая прибыль: {profit_str2}'
+                    except Exception:
+                        profit_line2 = ''
+                    send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма: {sum}{profit_line2}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
+                elif "Россия" in usluga:
+                    try:
+                        sum_bez_com = call.message.text.split('Сумма без комисии: ')[1].split('\n')[0]
                         profit_ru = round(float(sum) - float(sum_bez_com), 2)
                         profit_str = f'\n📈Чистая прибыль: {profit_ru}₽'
                     except Exception:
+                        sum_bez_com = '—'
                         profit_str = ''
                     send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма: {sum}\nСумма без комисии: {sum_bez_com}{profit_str}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
-                    ref_user = get_ref_user(id)
-                    logging.info(usluga)
-                    if "Россия" in usluga:
-                        procent = json.load(open("ref_data.json", encoding="utf-8"))
-                        if ref_user:
-                            logging.info("ДОШЛО")
-                            # add_balance_ref(id, balance_value)
-                except:
-                    logging.info("NELF")
-                    if "Украина" in usluga:
-                        hryvnia_multiple = json.load(open("ref_data.json", encoding="utf-8"))
-                        referer = get_ref_user(id)
-                        ua_ref_earned = 0
-                        if referer:
-                            user_type_before = get_user_type(id)
-                            usluga_ref = 'ua'
-                            ua_ref_earned = add_balance_ref_with_type(id, float(sum), usluga_ref, user_type_before)
-                            bot.send_message(referer, f'<b>🎉 Вы получили <code>{ua_ref_earned}</code> руб за реферала!</b>\n id:<code>{id}</code>\n Товар: Мобильный Украина', parse_mode="HTML")
-                        try:
-                            sum_grn = call.message.text.split('Сумма в грн.: ')[1].split('\n')[0]
-                        except:
-                            sum_grn = '—'
-                        # Считаем себестоимость и прибыль сами по курсу
-                        try:
-                            uah_rate = _uah_cost_rate_cache or get_uah_cost_rate()
-                            sebest_rub = round(float(sum_grn) * float(uah_rate), 2)
-                            profit_val = round(float(sum) - sebest_rub, 2)
-                            sebest = f'{sum_grn} ₴ = {sebest_rub} ₽ (курс {uah_rate})'
-                            profit = f'{profit_val} ₽'
-                        except:
-                            sebest = '—'
-                            profit = '—'
-                        ref_note = f'\n👥 Реферал: -{ua_ref_earned} ₽' if ua_ref_earned else ''
-                        send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма в грн.: {sum_grn}\nСумма в руб.: {sum}\n💰Себестоимость: {sebest}\n📈Чистая прибыль: {profit}{ref_note}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
-                    elif "Интернет" in usluga:
-                        try:
-                            cost_str = call.message.text.split('💰Себестоимость: ')[1].split('\n')[0]
-                            profit_str2 = call.message.text.split('📈Чистая прибыль: ')[1].split('\n')[0]
-                            profit_line2 = f'\n💰Себестоимость: {cost_str}\n📈Чистая прибыль: {profit_str2}'
-                        except Exception:
-                            profit_line2 = ''
-                        send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма: {sum}{profit_line2}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
-                    else:
-                        send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма: {sum}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
+                else:
+                    send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма: {sum}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
             elif text == 'nogoodKom':
                 close_request(int(number))
                 if not "Пополнение баланса" in usluga:
