@@ -15,7 +15,6 @@ import textwrap
 from PIL import Image, ImageDraw, ImageFont
 from pilmoji import Pilmoji
 from pilmoji.source import GoogleEmojiSource
-from bot import get_par
 import pandas as pd
 from io import BytesIO
 
@@ -782,6 +781,7 @@ def update_balanse(chat_id, key):
     update_last_activity(chat_id)
     
     # читаем значение из БД вместо JSON файла
+    from bot import get_par
     value_str = get_par(key, chat_id)
     
     if value_str is None:
@@ -920,7 +920,7 @@ def get_kurs(valuta):
     elif valuta == 'uah':
         return float(file_data[valuta])
 def get_uah_cost_rate():
-    """Получает курс UAH/RUB с Yandex и добавляет 1.5% (себестоимость)"""
+    """Получает курс UAH/RUB с Yandex и добавляет 2% (себестоимость)"""
     try:
         import re
         resp = requests.get(
@@ -931,7 +931,7 @@ def get_uah_cost_rate():
         match = re.search(r'составляет\s+([\d.]+)\s+Российских', resp.text)
         if match:
             rate = float(match.group(1))
-            return round(rate * 1.015, 4)
+            return round(rate * 1.02, 4)
     except:
         pass
     return None

@@ -25,7 +25,7 @@ from help import *
 from telebot.types import InputMediaPhoto
 import requests
 import logging
-from penalties import register_request, close_request, get_penalties_stats, start_penalty_checker, deduct_penalties, add_manual_penalty
+from penalties import register_request, close_request, get_penalties_stats, start_penalty_checker, deduct_penalties, add_manual_penalty, add_cash_transaction, get_cash_stats, get_cash_history, format_cash_line, CASH_CURRENCIES, _fmt as fmt_num, zero_cash_balance, clear_cash_history, record_partner_earning, PARTNER_ID
 
 logging.basicConfig(level=logging.INFO)
 create_req_id = 0
@@ -151,6 +151,27 @@ def _update_uah_rate_cache():
         _time.sleep(3600)
 threading.Thread(target=_update_uah_rate_cache, daemon=True).start()
 
+
+def _notify_partner(order_number, order_price, net_profit, service=''):
+    try:
+        net_profit = float(net_profit)
+        if net_profit <= 0:
+            return
+        partner_share = round(net_profit * 0.05, 2)
+        if partner_share <= 0:
+            return
+        record_partner_earning(order_number, float(order_price), net_profit, partner_share, service)
+        bot.send_message(
+            PARTNER_ID,
+            f'💼 Заявка №{order_number}\n'
+            f'💰 Стоимость заказа: {order_price} ₽\n'
+            f'📈 Чистая прибыль: {net_profit} ₽\n'
+            f'🎯 Ваша выручка (5%): {partner_share} ₽'
+        )
+    except Exception as _e:
+        print(f'[PARTNER] Ошибка уведомления: {_e}')
+
+
 admins = [
 7131879634, #It's me
 6732194898,
@@ -191,7 +212,7 @@ SEND_BUTTON, SEND_URL, CALC, CARD, SEND_IMAGE, SEND_RECEIPT, PAYOK_BUY, MERCHANT
 INVOICE_USER, INVOICE_PRICE, INVOICE_TOTAL, PROMOCODE, PROMOCODE_PRICE, PROMOCODE_USER, YOOMANY, NICEPAY, YOOMANY_REQUISITES,\
 YOOMANY_REQUISITES_LINK, YOOMANY_REQUISITES_EMAIL, YOOMANY_REQUISITES_PASSWORD, REF_PROCENT_CHANGE, REF_HRYVNIA_CHANGE, MESSAGE_TO_USER,\
 SEND_MESSAGE_TO_USER, ADMIN_DIALOG, TRANSITIONAL_LINK, SBP,CHOOSE_PLAN, CHOOSE_PERIOD, SBP_NUMBER, SBP_AMOUNT, CARD_NUMBER, CARD_AMOUNT, ACCEPTED_KEY, SEND_TARGET_ID,\
-SEND_TARGET_LIST, CRYPT_SUMM, CRYPT_TXID, RESET_REF_BALANCE, ESIM_MANUAL_SEND, SET_MODERATOR_ID_BALANS, GET_MODERATOR_ID_SUMM, SET_VALUE, PENALTY_AMOUNT_LEAVE, SEND_CONFIRM, WAIT_SVC_CONTACT, ESIM_QTY, SVC_GB_PHONE, PENALTY_ADD_COUNT = range(76)
+SEND_TARGET_LIST, CRYPT_SUMM, CRYPT_TXID, RESET_REF_BALANCE, ESIM_MANUAL_SEND, SET_MODERATOR_ID_BALANS, GET_MODERATOR_ID_SUMM, SET_VALUE, PENALTY_AMOUNT_LEAVE, SEND_CONFIRM, WAIT_SVC_CONTACT, ESIM_QTY, SVC_GB_PHONE, PENALTY_ADD_COUNT, CASH_AMOUNT, CASH_COMMENT = range(78)
 USER_STATE=defaultdict(lambda:START)
 USER_REQUEST_DATA = defaultdict(dict)
 
@@ -630,22 +651,42 @@ def deploy_handler(message):
 @bot.message_handler(commands=['analitic'])
 def restart_bot(message):
     if message.chat.id in admins:
-        text = """<b>🛑 Аналитика штрафов</b>"""
+        text = '<b>🛑 Аналитика</b>'
         inline_markup = types.InlineKeyboardMarkup(row_width=True)
         for moderator in moderators:
             stats = get_penalties_stats(moderator)
+            cash = get_cash_stats(moderator)
             count = stats['count']
-            total = stats['total']
-            text = text + f'''\n\n👤 <i>Модератор</i>: @{get_username(moderator)}, <code>{moderator}</code>\n<i>⌞Всего штрафов</i>: <code>{count}</code>\n<i>⌞Общая сумма</i>: <code>{total}</code> руб'''
+            total = int(stats['total'])
+            issued_line = format_cash_line(cash, 'total_issued')
+            spent_line = format_cash_line(cash, 'total_spent')
+            balance_line = format_cash_line(cash, 'balance')
+            any_balance = any(cash[c]['balance'] < 0 for c in CASH_CURRENCIES)
+            balance_emoji = '🔴' if any_balance else '🟢'
+            text += (
+                f'\n\n👤 <i>Модератор</i>: @{get_username(moderator)}, <code>{moderator}</code>'
+                f'\n<i>⌞Штрафов</i>: <code>{count}</code> шт = <code>{total}</code>₽'
+                f'\n💰 <i>⌞Выдано всего</i>: <code>{issued_line}</code>'
+                f'\n💸 <i>⌞Потрачено</i>:   <code>{spent_line}</code>'
+                f'\n{balance_emoji} <i>⌞На руках</i>:    <code>{balance_line}</code>'
+            )
             inline_markup.add(types.InlineKeyboardButton(
                 f'➕ Выставить штраф @{get_username(moderator)}',
                 callback_data=f'add_pen:{moderator}'
             ))
             if count > 0:
                 inline_markup.add(types.InlineKeyboardButton(
-                    f'🗑 Списать штрафы @{get_username(moderator)} ({count} шт / {int(total)}₽)',
+                    f'🗑 Списать штрафы @{get_username(moderator)} ({count} шт / {total}₽)',
                     callback_data=f'deduct_pen:{moderator}'
                 ))
+            inline_markup.row(
+                types.InlineKeyboardButton('➕ Выдать деньги', callback_data=f'cash_in:{moderator}'),
+                types.InlineKeyboardButton('➖ Записать расход', callback_data=f'cash_out:{moderator}'),
+                types.InlineKeyboardButton('📋 История', callback_data=f'cash_hist:{moderator}'),
+            )
+            inline_markup.add(
+                types.InlineKeyboardButton('🗑 Обнулить кассу', callback_data=f'cash_zero:{moderator}'),
+            )
         bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=inline_markup if moderators else None)
 
 
@@ -679,6 +720,7 @@ def svc_contact_handler(message):
         f'Дата: {date}\nЗаявка №{number}\nПользователь: @{message.chat.username}\nid: {user_id}\n'
         f'Услуга: {svc_name}\nСумма: {svc_price} ₽\n🎩Ранг: {get_user_rank(user_id)}\n'
         f'📱 Телефон: {phone}\nСтатус: ✅Одобрено')
+    _notify_partner(number, svc_price, float(svc_price), svc_name)
 
     manager_markup = types.InlineKeyboardMarkup(row_width=True)
     manager_markup.add(types.InlineKeyboardButton("📲 Написать специалисту", url="https://t.me/donate008"))
@@ -846,6 +888,9 @@ def esim_reply_photo_handler(message):
                     f'{pending_entry.get("profit_block", "")}'
                 )
                 send_photo_to_archives(downloaded, caption=archive_caption)
+                _pnp = float(pending_entry.get("net_profit", 0))
+                _psp = float(pending_entry.get("summa", 0))
+                _notify_partner(number_c, _psp, _pnp, f'Esim {pending_entry.get("operator", "")}')
         except Exception as ex:
             print(f"[eSIM] Ошибка архива: {ex}")
         bot.send_message(message.chat.id, f'✅ eSIM отправлен клиенту по заявке №{number_c}')
@@ -903,6 +948,9 @@ def esim_manual_send_handler(message):
                     f'{pending_entry.get("profit_block", "")}'
                 )
                 send_photo_to_archives(downloaded, caption=archive_caption)
+                _pnp = float(pending_entry.get("net_profit", 0))
+                _psp = float(pending_entry.get("summa", 0))
+                _notify_partner(number_c, _psp, _pnp, f'Esim {pending_entry.get("operator", "")}')
         except Exception as ex:
             print(f"[eSIM] Ошибка архива: {ex}")
         bot.send_message(message.chat.id, f'✅ eSIM отправлен клиенту по заявке №{number_c}', reply_markup=start_markup(message.chat.id))
@@ -2426,22 +2474,43 @@ def _do_esim_buy(message, qty):
     update_total_spent(chat_id, total_summa)
 
     # Вычисляем profit_block один раз — используется и в архиве авто-выдачи, и в pending-записях
+    _esim_net_profit = 0
     try:
-        cost_uah = tariff_data[operator].get("cost_uah", 0)
-        cost_rate = _uah_cost_rate_cache or get_kurs("uah")
-        cost_rub = round(float(cost_uah) * float(cost_rate), 0)
-        profit = round(float(summa_per) - cost_rub, 0)
-        ref_share = round(float(esim_ref_earned) / qty, 0) if esim_ref_earned else 0
-        net_profit = round(profit - ref_share, 0)
-        ref_block = f'\n👥 Реферал: -{ref_share} ₽ → Чистыми: {int(net_profit)} ₽' if esim_ref_earned else ''
-        profit_block = (
-            f'\n\n💰 Продажа: {summa_per} ₽'
-            f'\n💸 Себестоимость: {cost_uah} ₴'
-            f'\n💱 Курс: {cost_rate}'
-            f'\n\n📊 Себестоимость в ₽: {int(cost_rub)} ₽'
-            f'\n📈 Чистая прибыль: {int(profit)} ₽'
-            f'{ref_block}'
-        )
+        france_esim_cost_rub = {
+            "France35GB": 3672,
+            "FranceUnlimited": 4784,
+        }
+        if operator in france_esim_cost_rub:
+            cost_rub = france_esim_cost_rub[operator]
+            profit = round(float(summa_per) - cost_rub, 0)
+            ref_share = round(float(esim_ref_earned) / qty, 0) if esim_ref_earned else 0
+            net_profit = round(profit - ref_share, 0)
+            _esim_net_profit = float(net_profit)
+            ref_block = f'\n👥 Реферал: -{ref_share} ₽ → Чистыми: {int(net_profit)} ₽' if esim_ref_earned else ''
+            profit_block = (
+                f'\n\n💰 Продажа: {summa_per} ₽'
+                f'\n💸 Себестоимость: {int(cost_rub)} ₽'
+                f'\n💱 Курс: -'
+                f'\n\n📈 Чистая прибыль: {int(profit)} ₽'
+                f'{ref_block}'
+            )
+        else:
+            cost_uah = tariff_data[operator].get("cost_uah", 0)
+            cost_rate = _uah_cost_rate_cache or get_kurs("uah")
+            cost_rub = round(float(cost_uah) * float(cost_rate), 0)
+            profit = round(float(summa_per) - cost_rub, 0)
+            ref_share = round(float(esim_ref_earned) / qty, 0) if esim_ref_earned else 0
+            net_profit = round(profit - ref_share, 0)
+            _esim_net_profit = float(net_profit)
+            ref_block = f'\n👥 Реферал: -{ref_share} ₽ → Чистыми: {int(net_profit)} ₽' if esim_ref_earned else ''
+            profit_block = (
+                f'\n\n💰 Продажа: {summa_per} ₽'
+                f'\n💸 Себестоимость: {cost_uah} ₴'
+                f'\n💱 Курс: {cost_rate}'
+                f'\n\n📊 Себестоимость в ₽: {int(cost_rub)} ₽'
+                f'\n📈 Чистая прибыль: {int(profit)} ₽'
+                f'{ref_block}'
+            )
     except Exception:
         profit_block = f'\n\n💰 Продажа: {summa_per} ₽'
 
@@ -2480,7 +2549,9 @@ def _do_esim_buy(message, qty):
                 f'Услуга: Esim {operator}\n🎩Ранг: {get_user_rank(chat_id)}{profit_block}'
             )
             if esim_file_id:
-                send_photo_to_archives(esim_file_id, caption=archive_caption)
+                file_info = bot.get_file(esim_file_id)
+                downloaded = bot.download_file(file_info.file_path)
+                send_photo_to_archives(downloaded, caption=archive_caption)
             elif photo_bytes:
                 send_photo_to_archives(photo_bytes, caption=archive_caption)
             if not esim_file_id and os.path.exists(image):
@@ -2489,6 +2560,7 @@ def _do_esim_buy(message, qty):
             with open("eSIM/esim_answer.json", "w", encoding="utf-8") as file:
                 json.dump(esim_data, file, ensure_ascii=False, indent=4)
             delivered += 1
+            _notify_partner(number, summa_per, _esim_net_profit, usluga)
         except Exception as e:
             print(f"[eSIM] Ошибка отправки: {e}")
             pending_count += 1
@@ -2515,7 +2587,8 @@ def _do_esim_buy(message, qty):
             "summa": str(summa_per),
             "operator": operator,
             "rank": get_user_rank(chat_id),
-            "profit_block": profit_block
+            "profit_block": profit_block,
+            "net_profit": _esim_net_profit
         })
         with open("eSIM/esim_pending.json", "w", encoding="utf-8") as pf:
             json.dump(pending_data, pf, ensure_ascii=False, indent=4)
@@ -3461,6 +3534,175 @@ def penalty_add_count_handler(message):
     update_state(message, START)
 
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cash_in:") or call.data.startswith("cash_out:"))
+def cash_transaction_callback(call):
+    if call.from_user.id not in admins:
+        bot.answer_callback_query(call.id, "Нет доступа")
+        return
+    parts = call.data.split(":")
+    trans_type = 'income' if parts[0] == 'cash_in' else 'expense'
+    mod_id = int(parts[1])
+    cash = get_cash_stats(mod_id)
+    balance_line = format_cash_line(cash, 'balance')
+    action_text = '➕ Выдать деньги' if trans_type == 'income' else '➖ Записать расход'
+    cur_markup = types.InlineKeyboardMarkup(row_width=3)
+    cur_markup.add(
+        types.InlineKeyboardButton('🇺🇸 Доллары $', callback_data=f'cash_cur:{trans_type}:{mod_id}:USD'),
+        types.InlineKeyboardButton('🇺🇦 Гривны ₴',  callback_data=f'cash_cur:{trans_type}:{mod_id}:UAH'),
+    )
+    bot.answer_callback_query(call.id)
+    bot.send_message(
+        call.message.chat.id,
+        f'👤 @{get_username(mod_id)} | {action_text}\n'
+        f'🟢 На руках: <b>{balance_line}</b>\n\n'
+        f'Выберите валюту:',
+        parse_mode='HTML',
+        reply_markup=cur_markup
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cash_cur:"))
+def cash_cur_callback(call):
+    if call.from_user.id not in admins:
+        bot.answer_callback_query(call.id, "Нет доступа")
+        return
+    _, trans_type, mod_id_str, currency = call.data.split(":")
+    mod_id = int(mod_id_str)
+    add_data('cash_mod_id', mod_id_str, call.from_user.id)
+    add_data('cash_type', trans_type, call.from_user.id)
+    add_data('cash_currency', currency, call.from_user.id)
+    sym = CASH_CURRENCIES[currency]
+    action_text = '➕ Выдать деньги' if trans_type == 'income' else '➖ Записать расход'
+    bot.answer_callback_query(call.id)
+    bot.send_message(
+        call.message.chat.id,
+        f'👤 @{get_username(mod_id)} | {action_text} | {sym}\n\nВведите сумму ({sym}):',
+        parse_mode='HTML',
+        reply_markup=start_markup(call.from_user.id, text='🚫 Отмена')
+    )
+    update_state(call.message, CASH_AMOUNT)
+
+
+@bot.message_handler(func=lambda message: get_state(message) == CASH_AMOUNT)
+def cash_amount_handler(message):
+    if message.text == '🚫 Отмена':
+        bot.send_message(message.chat.id, 'Отменено', reply_markup=start_markup(message.chat.id))
+        update_state(message, START)
+        return
+    text_clean = message.text.replace(',', '.').replace(' ', '')
+    try:
+        amount = float(text_clean)
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        bot.send_message(message.chat.id, 'Введите положительное число (например: 10000 или 3200.50)')
+        return
+    add_data('cash_amount', str(amount), message.chat.id)
+    skip_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    skip_markup.add('⏩ Пропустить', '🚫 Отмена')
+    bot.send_message(message.chat.id, 'Введите комментарий (или нажмите ⏩ Пропустить):', reply_markup=skip_markup)
+    update_state(message, CASH_COMMENT)
+
+
+@bot.message_handler(func=lambda message: get_state(message) == CASH_COMMENT)
+def cash_comment_handler(message):
+    if message.text == '🚫 Отмена':
+        bot.send_message(message.chat.id, 'Отменено', reply_markup=start_markup(message.chat.id))
+        update_state(message, START)
+        return
+    comment = '' if message.text == '⏩ Пропустить' else message.text
+    mod_id = int(get_par('cash_mod_id', message.chat.id))
+    amount = float(get_par('cash_amount', message.chat.id))
+    trans_type = get_par('cash_type', message.chat.id)
+    currency = get_par('cash_currency', message.chat.id) or 'USD'
+    sym = CASH_CURRENCIES.get(currency, '₽')
+    add_cash_transaction(mod_id, trans_type, amount, comment, currency)
+    cash = get_cash_stats(mod_id)
+    sign = '+' if trans_type == 'income' else '-'
+    action = 'Выдано' if trans_type == 'income' else 'Записан расход'
+    balance_line = format_cash_line(cash, 'balance')
+    issued_line = format_cash_line(cash, 'total_issued')
+    spent_line = format_cash_line(cash, 'total_spent')
+    any_negative = any(cash[c]['balance'] < 0 for c in CASH_CURRENCIES)
+    balance_emoji = '🔴' if any_negative else '🟢'
+    comment_line = f'💬 {comment}\n' if comment else ''
+    bot.send_message(
+        message.chat.id,
+        f'✅ {action}: <b>{sign}{fmt_num(amount)}{sym}</b>\n'
+        f'{comment_line}'
+        f'\n👤 @{get_username(mod_id)}:\n'
+        f'💰 Выдано: <b>{issued_line}</b>\n'
+        f'💸 Потрачено: <b>{spent_line}</b>\n'
+        f'{balance_emoji} На руках: <b>{balance_line}</b>',
+        parse_mode='HTML',
+        reply_markup=start_markup(message.chat.id)
+    )
+    update_state(message, START)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cash_hist:"))
+def cash_hist_callback(call):
+    if call.from_user.id not in admins:
+        bot.answer_callback_query(call.id, "Нет доступа")
+        return
+    mod_id = int(call.data.split(":")[1])
+    history = get_cash_history(mod_id)
+    cash = get_cash_stats(mod_id)
+    any_negative = any(cash[c]['balance'] < 0 for c in CASH_CURRENCIES)
+    balance_emoji = '🔴' if any_negative else '🟢'
+    issued_line = format_cash_line(cash, 'total_issued')
+    spent_line = format_cash_line(cash, 'total_spent')
+    balance_line = format_cash_line(cash, 'balance')
+    text = f'📋 <b>Касса @{get_username(mod_id)}</b>\n'
+    text += f'💰 Выдано: <b>{issued_line}</b>  |  💸 Потрачено: <b>{spent_line}</b>\n'
+    text += f'{balance_emoji} На руках: <b>{balance_line}</b>\n\n'
+    if not history:
+        text += '<i>История пуста</i>'
+    else:
+        for trans_type, amount, comment, created_at, currency in history:
+            dt = datetime.fromisoformat(created_at)
+            sign = '➕' if trans_type == 'income' else '➖'
+            sym = CASH_CURRENCIES.get(currency, '₽')
+            comment_str = f' — {comment}' if comment else ''
+            text += f'{sign} <b>{fmt_num(amount)}{sym}</b>  {dt.strftime("%d.%m %H:%M")}{comment_str}\n'
+    clear_markup = types.InlineKeyboardMarkup()
+    clear_markup.add(types.InlineKeyboardButton('🗑 Очистить историю', callback_data=f'cash_clear:{mod_id}'))
+    bot.answer_callback_query(call.id)
+    bot.send_message(call.message.chat.id, text, parse_mode='HTML', reply_markup=clear_markup)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cash_clear:"))
+def cash_clear_callback(call):
+    if call.from_user.id not in admins:
+        bot.answer_callback_query(call.id, "Нет доступа")
+        return
+    mod_id = int(call.data.split(":")[1])
+    clear_cash_history(mod_id)
+    bot.answer_callback_query(call.id, "История очищена")
+    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    bot.send_message(call.message.chat.id, f'🗑 История кассы @{get_username(mod_id)} очищена.')
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cash_zero:"))
+def cash_zero_callback(call):
+    if call.from_user.id not in admins:
+        bot.answer_callback_query(call.id, "Нет доступа")
+        return
+    mod_id = int(call.data.split(":")[1])
+    zeroed = zero_cash_balance(mod_id)
+    bot.answer_callback_query(call.id)
+    if not zeroed:
+        bot.send_message(call.message.chat.id, f'💼 @{get_username(mod_id)}: баланс и так нулевой.')
+        return
+    lines = '  '.join(f'{fmt_num(v)}{CASH_CURRENCIES[c]}' for c, v in zeroed.items())
+    bot.send_message(
+        call.message.chat.id,
+        f'✅ Касса @{get_username(mod_id)} обнулена.\n'
+        f'💸 Списано: <b>{lines}</b>',
+        parse_mode='HTML'
+    )
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("deduct_pen:"))
 def deduct_pen_callback(call):
     if call.from_user.id not in admins:
@@ -3656,8 +3898,8 @@ def handle_callback_query(call):
             "🛜 <b>Пополнение ГБ</b>\n\n"
             "Добавим интернет на ваш номер без смены SIM.\nРаботает сразу после подключения, без перебоев.\n\n"
             "💰 Стоимость:\n"
-            "<b>10 ГБ</b> - 690 руб / 4 недели\n"
-            "<b>100 ГБ</b> - 990 руб / 4 недели",
+            "<b>10 ГБ</b> - 990 руб / 4 недели\n"
+            "<b>100 ГБ</b> - 1690 руб / 4 недели",
             parse_mode="HTML", reply_markup=markup)
         update_state(call.message, START)
 
@@ -3676,7 +3918,7 @@ def handle_callback_query(call):
         update_state(call.message, START)
 
     elif text.startswith('svc-'):
-        prices = {10: 490, 100: 990, 15: 990, 40: 2099}
+        prices = {10: 990, 100: 1690, 15: 990, 40: 2099}
         gb = int(text.split('_')[-1])
         svc_type = text.split('_')[0].replace('svc-', '')
         summ = prices.get(gb, 0)
@@ -3727,6 +3969,10 @@ def handle_callback_query(call):
             f"Услуга: {_svc_name}. {_phone}\nСумма: {summa_c} ₽\n"
             f"{_cost_block}"
             f"🎩Ранг: {get_user_rank(user_id_c)}\nСтатус: ✅Одобрено\n\nЗаявку закрыл(а): {_admin}")
+        if _cost_uah > 0:
+            _notify_partner(number_c, summa_c, _profit, _svc_name)
+        else:
+            _notify_partner(number_c, summa_c, float(summa_c), _svc_name)
 
     elif text.startswith("svc_gb_reject:"):
         _, number_c, user_id_c, summa_c = text.split(":")
@@ -3784,8 +4030,8 @@ def handle_callback_query(call):
 
     elif text.startswith("svc_confirm_gb:"):
         _GB_INFO = {
-            "gb_10":    ("🛜 Пополнение ГБ (10 ГБ)",   490),
-            "gb_100":   ("🛜 Пополнение ГБ (100 ГБ)",  990),
+            "gb_10":    ("🛜 Пополнение ГБ (10 ГБ)",    990),
+            "gb_100":   ("🛜 Пополнение ГБ (100 ГБ)", 1690),
             "roum_15":  ("🌍 Роуминг (15 ГБ)",         990),
             "roum_40":  ("🌍 Роуминг (40 ГБ)",        2099),
         }
@@ -4070,6 +4316,14 @@ def handle_callback_query(call):
 
         bot.send_message(chat_id, 'Выберите валюту:', reply_markup=inline_markup)
         update_state(call.message, VALUTA)
+    elif text == "France":
+        with open("esim.json", encoding="utf-8") as file:
+            data = json.load(file)
+        inline_markup = types.InlineKeyboardMarkup(row_width=True)
+        inline_markup.add(types.InlineKeyboardButton(f'{data["FranceUnlimited"]["tariff_name"]}', callback_data="FranceUnlimitedTarif"))
+        inline_markup.add(types.InlineKeyboardButton(f'{data["France35GB"]["tariff_name"]}', callback_data="France35GBTarif"))
+        bot.send_message(call.message.chat.id, 'Выберите тариф Франции:', reply_markup=inline_markup)
+
     elif text == "Vodafone" or text == "Kievstar" or text == "Lifecell":
         with open("esim.json", encoding="utf-8") as file:
             data = json.load(file)
@@ -4097,7 +4351,7 @@ def handle_callback_query(call):
         with open("analytic_clicks_data.json", "w", encoding="utf-8") as json_file:
             json.dump(json_data, json_file, ensure_ascii=False, indent=4)
 
-    elif text == "VodafoneTarif" or text == "КиевстарTarif" or text == "LifecellTarif":
+    elif text == "VodafoneTarif" or text == "КиевстарTarif" or text == "LifecellTarif" or text == "FranceUnlimitedTarif" or text == "France35GBTarif":
         with open("esim.json", encoding="utf-8") as file:
             data = json.load(file)
         inline_markup = types.InlineKeyboardMarkup(row_width=True)
@@ -4143,8 +4397,30 @@ def handle_callback_query(call):
                     bot.send_photo(call.message.chat.id, photo, caption, reply_markup=inline_markup, caption_entities=ents)
                 else:
                     bot.send_photo(call.message.chat.id, photo, caption, reply_markup=inline_markup, parse_mode='HTML')
+        elif text in ["FranceUnlimitedTarif", "France35GBTarif"]:
+            operator = text.replace("Tarif", "")
+            json_data = json.load(open("analytic_clicks_data.json", encoding="utf-8"))
+            json_data["eSIM сим-карты"][operator] += 1
+            with open("analytic_clicks_data.json", "w", encoding="utf-8") as json_file:
+                json.dump(json_data, json_file, ensure_ascii=False, indent=4)
+            add_data('EsimOperator', operator, call.message.chat.id)
+            add_data('EsimTarif', f"{data[operator]['tariff']}", call.message.chat.id)
+            add_data('EsimPrice', f"{data[operator]['price']}", call.message.chat.id)
+            stock_count = len(esim_data.get(operator, {}))
+            display_count = stock_count if stock_count > 3 else 3
+            caption = f"{data[operator]['tariff']}\n\n📦 В наличии: {display_count} шт"
+            ents = _get_esim_caption_entities(data[operator])
+            image_path = f'files/{operator}Tarif.jpg'
+            if os.path.exists(image_path):
+                with open(image_path, 'rb') as photo:
+                    if ents:
+                        bot.send_photo(call.message.chat.id, photo, caption, reply_markup=inline_markup, caption_entities=ents)
+                    else:
+                        bot.send_photo(call.message.chat.id, photo, caption, reply_markup=inline_markup, parse_mode='HTML')
+            else:
+                bot.send_message(call.message.chat.id, caption, reply_markup=inline_markup, parse_mode='HTML')
 
-    elif text in ["admin_Vodafone", "admin_Kievstar", "admin_Lifecell"]:
+    elif text in ["admin_Vodafone", "admin_Kievstar", "admin_Lifecell", "admin_FranceUnlimited", "admin_France35GB"]:
         inline_markup = types.InlineKeyboardMarkup(row_width=True)
         inline_markup.add(types.InlineKeyboardButton("Изменить название тарифа", callback_data="name_tariff"))
         inline_markup.add(types.InlineKeyboardButton("Изменить описание тарифа", callback_data="about_tariff"))
@@ -4456,7 +4732,7 @@ id: {chat_id}
     elif text == "esim_view_stock":
         with open("eSIM/esim_answer.json", encoding="utf-8") as file:
             esim_data = json.load(file)
-        operators = ["Vodafone", "Kievstar", "Lifecell"]
+        operators = ["Vodafone", "Kievstar", "Lifecell", "FranceUnlimited", "France35GB"]
         has_any = False
         for operator in operators:
             entries = esim_data.get(operator, {})
@@ -4487,9 +4763,11 @@ id: {chat_id}
             inline_markup.add(types.InlineKeyboardButton("♻️Vodafone", callback_data="Vodafone_delete"))
             inline_markup.add(types.InlineKeyboardButton("♻️Киевстар", callback_data="Kievstar_delete"))
             inline_markup.add(types.InlineKeyboardButton("♻️Lifecell", callback_data="Lifecell_delete"))
+            inline_markup.add(types.InlineKeyboardButton("♻️Франция безлимит", callback_data="FranceUnlimited_delete"))
+            inline_markup.add(types.InlineKeyboardButton("♻️Франция 35 ГБ", callback_data="France35GB_delete"))
             bot.send_message(call.message.chat.id, "Выберите у какого оператора хотите удалить товары", reply_markup=inline_markup)
 
-    elif text in ["Vodafone_delete", "Kievstar_delete", "Lifecell_delete"]:
+    elif text in ["Vodafone_delete", "Kievstar_delete", "Lifecell_delete", "FranceUnlimited_delete", "France35GB_delete"]:
         operator = text.split("_")[0]
         with open("eSIM/esim_answer.json", encoding="utf-8") as file:
             data = json.load(file)
@@ -4751,7 +5029,8 @@ id: {chat_id}
         inline_markup.add(types.InlineKeyboardButton("🔴 Vodafone", callback_data="Vodafone", icon_custom_emoji_id="5267292959182697142"))
         inline_markup.add(types.InlineKeyboardButton("🔵 Киевстар", callback_data="Kievstar", icon_custom_emoji_id="5267061554934723857"))
         inline_markup.add(types.InlineKeyboardButton("🟡 Lifecell", callback_data="Lifecell", icon_custom_emoji_id="5267284102960131913"))
-        bot.send_message(call.message.chat.id, 'Выберите оператора:', reply_markup=inline_markup)
+        inline_markup.add(types.InlineKeyboardButton("🇫🇷 Франция", callback_data="France"))
+        bot.send_message(call.message.chat.id, 'Выберите eSIM:', reply_markup=inline_markup)
     elif text == 'RostNet':
         bot.send_message(chat_id, '📝Введите ваш ID или Логин', reply_markup=start_markup(chat_id, text='🚫 Отмена'))
         update_state(call.message, GET_LOGIN_INET)
@@ -5287,6 +5566,22 @@ id: {chat_id}
                             _mod_balans_str = f'\n💸 Списано с баланса модератора: {_cost_uah:.2f}₴ (остаток: {_mod_balans:.2f}₴)'
                 except Exception:
                     pass
+                # Авто-списание с кассы модератора (UAH) — только если в заявке есть сумма в грн.
+                try:
+                    _msg_text = call.message.text or call.message.caption or ''
+                    if 'Сумма в грн.:' in _msg_text:
+                        _grn_str = _msg_text.split('Сумма в грн.:')[1].split('\n')[0].strip()
+                        _grn_amount = float(_grn_str.replace(',', '.').replace('₴', '').strip())
+                        if _grn_amount > 0:
+                            add_cash_transaction(
+                                call.from_user.id, 'expense', _grn_amount,
+                                f'Заявка №{number}: {usluga}', 'UAH'
+                            )
+                            _cash = get_cash_stats(call.from_user.id)
+                            _remain = int(_cash['UAH']['balance'])
+                            _mod_balans_str += f'\n💼 На руках у модератора: {_remain}₴'
+                except Exception:
+                    pass
                 inline_markup = types.InlineKeyboardMarkup(row_width=True)
                 inline_markup.add(types.InlineKeyboardButton(text = "⬆️ Оставить отзыв", callback_data = 'send_feedback'))
                 if "Пополнение баланса" in usluga:
@@ -5305,6 +5600,7 @@ id: {chat_id}
                     try:
                         profit_ru = round(float(sum) - float(sum_bez_com), 2)
                         profit_str = f'\n📈Чистая прибыль: {profit_ru}₽'
+                        _notify_partner(number, sum, profit_ru, usluga)
                     except Exception:
                         profit_str = ''
                     send_to_archives(bot.send_message, f'Дата: {date}\nЗаявка №{number}\nПользователь: {user}\nid: {id}\nУслуга: {usluga}\nСумма: {sum}\nСумма без комисии: {sum_bez_com}{profit_str}\n🎩Ранг: {get_user_rank(id)}\nСтатус: ✅Одобрено\n\n Заявку закрыл(а): {call.from_user.username}{_mod_balans_str}')
@@ -5337,6 +5633,7 @@ id: {chat_id}
                             profit_val = round(float(sum) - sebest_rub, 2)
                             sebest = f'{sum_grn} ₴ = {sebest_rub} ₽ (курс {uah_rate})'
                             profit = f'{profit_val} ₽'
+                            _notify_partner(number, sum, profit_val, usluga)
                         except:
                             sebest = '—'
                             profit = '—'
@@ -5777,6 +6074,7 @@ id: {chat_id}
             update_total_spent(call.message.chat.id, float(summ))
             bot.send_message(call.message.chat.id, f'✅Готово', reply_markup = start_markup(call.message.chat.id), parse_mode="HTML")
             send_to_archives(bot.send_message, f"Номер заявки: {number}\nId пользователя: {call.message.chat.id}\nПользователь: @{call.message.chat.username}\nСумма: {summ}\n🎩Ранг: {get_user_rank(call.message.chat.id)}\nТовар: {usluga}")
+            _notify_partner(number, summ, float(summ), usluga)
             # bot.send_message(adminGroup, f'Заявка №{number}\nПользователь: @{call.message.chat.username} \nid: {call.message.chat.id}\nУслуга: {usluga}\nСумма: {summ}', reply_markup = admin_markup())
             bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
@@ -6145,7 +6443,8 @@ def eSIM(message):
     inline_markup.add(types.InlineKeyboardButton("🔴 Vodafone", callback_data="Vodafone", icon_custom_emoji_id="5267292959182697142"))
     inline_markup.add(types.InlineKeyboardButton("🔵 Киевстар", callback_data="Kievstar", icon_custom_emoji_id="5267061554934723857"))
     inline_markup.add(types.InlineKeyboardButton("🟡 Lifecell", callback_data="Lifecell", icon_custom_emoji_id="5267284102960131913"))
-    bot.send_message(message.chat.id, 'Выберите оператора:', reply_markup=inline_markup)
+    inline_markup.add(types.InlineKeyboardButton("🇫🇷 Франция", callback_data="France"))
+    bot.send_message(message.chat.id, 'Выберите eSIM:', reply_markup=inline_markup)
 
 def VPN(message):
     markup = types.InlineKeyboardMarkup()
@@ -6160,6 +6459,116 @@ def VPN(message):
 Подключайся и пользуйся интернетом свободно! 🌍💨
     """, reply_markup=markup)
     update_state(message, START)
+
+_archive_scan_sessions = {}
+
+_FULL_PRICE_SVC_PATTERNS = [
+    'Настройка связи', 'Настройка SIM', 'Настройка eSIM',
+    'Настройка телефона', 'Смена региона', 'Настройка игровых',
+]
+
+def _parse_profit_from_archive(text):
+    """Парсит прибыль из текста сообщения архива. Возвращает (profit, order_num)."""
+    if not text:
+        return 0.0, '?'
+    if '❌Отменено' in text or 'Статус: ❌' in text:
+        return 0.0, '?'
+
+    m = re.search(r'Заявка №(\S+)', text)
+    if not m:
+        m = re.search(r'Номер заявки:\s*(\S+)', text)
+    order_num = m.group(1) if m else '?'
+
+    # 1. Явная строка прибыли → берём её
+    m = re.search(r'📈\s*Чистая прибыль:\s*([\d.,\-]+)\s*₽', text)
+    if m:
+        try:
+            val = float(m.group(1).replace(',', '.'))
+            return (max(val, 0.0), order_num)
+        except Exception:
+            pass
+
+    # 2. Услуги без маржи → 5% от полной стоимости
+    svc_m = re.search(r'(?:Услуга|Товар):\s*(.+?)(?:\n|$)', text)
+    service = svc_m.group(1).strip() if svc_m else ''
+    for pattern in _FULL_PRICE_SVC_PATTERNS:
+        if pattern.lower() in service.lower():
+            summa_m = re.search(r'Сумма:\s*([\d.,]+)\s*₽?', text)
+            if summa_m:
+                try:
+                    return (float(summa_m.group(1).replace(',', '.')), order_num)
+                except Exception:
+                    pass
+            break
+
+    # 3. Донат / счёт (формат invoice_buy: есть «Товар:», нет «Услуга:»)
+    if 'Товар:' in text and 'Услуга:' not in text:
+        summa_m = re.search(r'Сумма:\s*([\d.,]+)', text)
+        if summa_m:
+            try:
+                return (float(summa_m.group(1).replace(',', '.')), order_num)
+            except Exception:
+                pass
+
+    return 0.0, order_num
+
+
+@bot.message_handler(commands=['calc_profit'])
+def calc_profit_cmd(message):
+    if message.chat.id not in admins and message.chat.id != PARTNER_ID:
+        return
+    _archive_scan_sessions[message.chat.id] = {
+        'total_profit': 0.0, 'count': 0, 'skipped': 0
+    }
+    bot.send_message(
+        message.chat.id,
+        "📊 <b>Режим подсчёта прибыли за прошлый месяц</b>\n\n"
+        "Пересылайте сообщения из архива сюда.\n"
+        "Бот сам найдёт прибыль в каждом сообщении.\n\n"
+        "Когда закончите — отправьте /done_profit",
+        parse_mode="HTML"
+    )
+
+
+@bot.message_handler(commands=['done_profit'])
+def done_profit_cmd(message):
+    uid = message.chat.id
+    if uid not in _archive_scan_sessions:
+        return
+    data = _archive_scan_sessions.pop(uid)
+    total = data['total_profit']
+    count = data['count']
+    skipped = data['skipped']
+    partner_share = round(total * 0.05, 2)
+    bot.send_message(
+        uid,
+        f"📊 <b>Итоги подсчёта за прошлый месяц</b>\n\n"
+        f"Сообщений обработано: {count + skipped}\n"
+        f"  ✅ С прибылью: {count}\n"
+        f"  ⏭ Пропущено: {skipped}\n\n"
+        f"💹 Суммарная прибыль: {total:.2f} ₽\n"
+        f"🎯 Ваша выручка (5%): <b>{partner_share:.2f} ₽</b>",
+        parse_mode="HTML"
+    )
+
+
+@bot.message_handler(
+    func=lambda m: m.chat.id in _archive_scan_sessions,
+    content_types=['text', 'photo']
+)
+def archive_scan_handler(message):
+    uid = message.chat.id
+    text = message.text or message.caption or ''
+    profit, order_num = _parse_profit_from_archive(text)
+
+    if profit > 0:
+        share = round(profit * 0.05, 2)
+        _archive_scan_sessions[uid]['total_profit'] += profit
+        _archive_scan_sessions[uid]['count'] += 1
+        bot.send_message(uid, f"✅ №{order_num} → прибыль {profit:.2f} ₽ → ваша выручка {share:.2f} ₽")
+    else:
+        _archive_scan_sessions[uid]['skipped'] += 1
+
 
 @bot.message_handler(content_types=['text'])
 def get_text_messages(message):
@@ -6350,9 +6759,8 @@ def get_text_messages(message):
             os.makedirs(os.path.join(BASE_DIR, "eSIM"), exist_ok=True)
             with open(esim_answer_path, "w", encoding="utf-8") as file:
                 json.dump({}, file)
-        operators = ["Vodafone", "Kievstar", "Lifecell"]
+        operators = ["Vodafone", "Kievstar", "Lifecell", "FranceUnlimited", "France35GB"]
         count = []
-        # [0] - Vodafone, [1] - Kievstar, [2] - Lifecell
         for operator in operators:
             if esim_data.get(operator):
                 items = len(esim_data[operator])
@@ -6364,6 +6772,8 @@ def get_text_messages(message):
         inline_markup.add(types.InlineKeyboardButton(f"🔴 Vodafone ({count[0]})", callback_data="admin_Vodafone", icon_custom_emoji_id="5267292959182697142"))
         inline_markup.add(types.InlineKeyboardButton(f"🔵 Киевстар ({count[1]})", callback_data="admin_Kievstar", icon_custom_emoji_id="5267061554934723857"))
         inline_markup.add(types.InlineKeyboardButton(f"🟡 Lifecell ({count[2]})", callback_data="admin_Lifecell", icon_custom_emoji_id="5267284102960131913"))
+        inline_markup.add(types.InlineKeyboardButton(f"🇫🇷 Франция безлимит ({count[3]})", callback_data="admin_FranceUnlimited"))
+        inline_markup.add(types.InlineKeyboardButton(f"🇫🇷 Франция 35 ГБ ({count[4]})", callback_data="admin_France35GB"))
         inline_markup.add(types.InlineKeyboardButton("🗑Удаление товаров у категории", callback_data="esim_delete"))
         inline_markup.add(types.InlineKeyboardButton("📋 Посмотреть eSIM в базе", callback_data="esim_view_stock"))
         bot.send_message(message.chat.id, 'Выберите тариф для изменения', reply_markup = inline_markup)
