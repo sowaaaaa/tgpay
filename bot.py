@@ -16,7 +16,7 @@ import pytz
 from datetime import datetime, time
 import telebot
 from telebot import apihelper
-apihelper.proxy = {'https': 'socks5h://127.0.0.1:10808'}  # только для локальной разработки
+# apihelper.proxy = {'https': 'socks5h://127.0.0.1:10808'}  # только для локальной разработки
 import uuid
 from dotenv import get_key, load_dotenv
 from telebot import types
