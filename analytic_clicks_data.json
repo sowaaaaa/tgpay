@@ -20,7 +20,9 @@
         "clicks": 0,
         "Vodafone": 451,
         "Киевстар": 894,
-        "Lifecell": 420
+        "Lifecell": 420,
+        "FranceUnlimited": 0,
+        "France35GB": 0
     },
     "Интернет": 726,
     "Профиль": {

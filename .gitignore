@@ -1,0 +1,28 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# Database
+files/*.db
+files/*.db-shm
+files/*.db-wal
+
+# Receipts
+receipt_*.jpg
+receipt_*.pdf
+
+# Logs
+*.log
+nohup.out
+
+# Copies (backup folders)
+Copy of */
+
+# Runtime files
+*.pid

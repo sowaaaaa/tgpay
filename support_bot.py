@@ -6,14 +6,15 @@ import sqlite3
 import logging
 import requests
 import random
-import time
-from datetime import time, datetime
+import pytz
+from datetime import time as dtime, datetime
 
-WORK_START = time(10, 0)  # 10:00 МСК
-WORK_END = time(22, 0)    # 22:00 МСК
+MSK = pytz.timezone('Europe/Moscow')
+WORK_START = dtime(10, 0)  # 10:00 МСК
+WORK_END = dtime(22, 0)    # 22:00 МСК
 
 def is_working_time():
-    now = datetime.now().time()
+    now = datetime.now(MSK).time()
     return WORK_START <= now <= WORK_END
 from telegram import (
     Update,
@@ -31,7 +32,7 @@ from telegram.ext import (
 
 # ================= CONFIG =================
 
-BOT_TOKEN = "6872946471:AAGVI968FryOJEvfVQlltnbaB492wosYZrc"
+BOT_TOKEN = "6872946471:AAFcSVgwtwsz-OB4ig8MhsmKbsdzNVx-dQE" #8624802558:AAEH_K6hUPvh5Qe4jWFEelX5kTgqwJoRHFo  6872946471:AAGVI968FryOJEvfVQlltnbaB492wosYZrc
 GROUP_ID = -1002245553470  # ID вашей группы
 ADMIN_IDS = [6732194898, 1539247342, 1739548566, 7131879634]
 
@@ -163,19 +164,27 @@ def add_deposit(user_id, summ):
 # ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Салют!\n\nTGPay слушает. Чем помочь?"
-    )
-
-
-async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_working_time():
         await update.message.reply_text(
             "🚀 Это служба поддержки TGPay!\n\n"
             "Вы написали нам в нерабочее время. Мы обязательно ответим на ваше сообщение, как только начнём работать 🕒\n\n"
             "⏰ Наш график работы: с 10:00 до 22:00 (по МСК)."
         )
+        return
+    await update.message.reply_text(
+        "👋 Салют!\n\nTGPay слушает. Чем помочь?"
+    )
+
+
+async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
+        return
+    if not is_working_time():
+        await update.message.reply_text(
+            "🚀 Это служба поддержки TGPay!\n\n"
+            "Вы написали нам в нерабочее время. Мы обязательно ответим на ваше сообщение, как только начнём работать 🕒\n\n"
+            "⏰ Наш график работы: с 10:00 до 22:00 (по МСК)."
+        )
         return
 
     user = update.effective_user
