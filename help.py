@@ -817,10 +817,7 @@ def add_deposit(id, summ):
         data = cursor.fetchone()
         summ = float(summ)
         if data:
-            if int(summ) == 0:
-                value=0
-            else:
-                value=float(summ)+data[0]
+            value=float(summ)+data[0]
             cursor.execute('UPDATE users SET balans = ? WHERE id = ?', (value, id))
             db.commit()
             db.close()

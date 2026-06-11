@@ -6,6 +6,7 @@ import sqlite3
 import logging
 import requests
 import random
+import time
 import pytz
 from datetime import time as dtime, datetime
 
@@ -32,9 +33,9 @@ from telegram.ext import (
 
 # ================= CONFIG =================
 
-BOT_TOKEN = "6872946471:AAFcSVgwtwsz-OB4ig8MhsmKbsdzNVx-dQE" #8624802558:AAEH_K6hUPvh5Qe4jWFEelX5kTgqwJoRHFo  6872946471:AAGVI968FryOJEvfVQlltnbaB492wosYZrc
+BOT_TOKEN = "6872946471:AAGBs8eGlzKvjNx38vX0vMiz_hDhDMmSyog"
 GROUP_ID = -1002245553470  # ID вашей группы
-ADMIN_IDS = [6732194898, 1539247342, 1739548566, 7131879634]
+ADMIN_IDS = [6732194898, 1539247342, 1739548566, 7131879634, 800730615]
 
 SHOP_ID = 'c503c42c-5289-4994-baf5-22b4766ed9f6'
 SECRET_KEY = '92e5db53521a6d5c03221a1361715b34dd67dcb9'
@@ -164,27 +165,19 @@ def add_deposit(user_id, summ):
 # ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_working_time():
-        await update.message.reply_text(
-            "🚀 Это служба поддержки TGPay!\n\n"
-            "Вы написали нам в нерабочее время. Мы обязательно ответим на ваше сообщение, как только начнём работать 🕒\n\n"
-            "⏰ Наш график работы: с 10:00 до 22:00 (по МСК)."
-        )
-        return
     await update.message.reply_text(
         "👋 Салют!\n\nTGPay слушает. Чем помочь?"
     )
 
 
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private":
-        return
     if not is_working_time():
         await update.message.reply_text(
             "🚀 Это служба поддержки TGPay!\n\n"
             "Вы написали нам в нерабочее время. Мы обязательно ответим на ваше сообщение, как только начнём работать 🕒\n\n"
             "⏰ Наш график работы: с 10:00 до 22:00 (по МСК)."
         )
+    if update.effective_chat.type != "private":
         return
 
     user = update.effective_user
