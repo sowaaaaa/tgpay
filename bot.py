@@ -2186,7 +2186,7 @@ def get_balanse(message):
         if message.text.replace('-', '').isdigit():
             markup = start_markup(message.chat.id)
             id = get_par('id_admin', message.chat.id)
-            suuu = add_deposit(int(id), message.text)
+            suuu = change_deposit(int(id), message.text)
             bot.send_message(message.chat.id, f'Баланс изменён', reply_markup = markup)
             usluga = f'Пополнение баланса вручную.\n'
             date = datetime.now().date().strftime('%d.%m.%Y')

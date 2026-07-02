@@ -834,7 +834,7 @@ def add_deposit(id, summ):
         return False
 def change_deposit(id, summ):
     update_last_activity(id)
-    if summ.replace('.', '').isdigit():
+    if str(summ).replace('.', '').replace('-', '').isdigit():
         db = sqlite3.connect('files/users.db')
         cursor = db.cursor()
         cursor.execute(f'SELECT balans FROM users WHERE id = ?', (id,))
