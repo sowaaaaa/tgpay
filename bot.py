@@ -268,14 +268,32 @@ USER_REQUEST_DATA = defaultdict(dict)
 USER_WAIT_FOR_CONTINUE = defaultdict(lambda: False)
 admin_waiting_key = {}
 ########
+def _archive_balance_suffix(text):
+    if not text:
+        return ''
+    m = re.search(r'\nid:\s*(\d+)', text)
+    if m:
+        try:
+            bal = get_balans(int(m.group(1)))
+            return f'\nБаланс пользователя: {bal} ₽'
+        except Exception:
+            pass
+    return ''
+
 def send_to_archives(method, *args, **kwargs):
+    new_args = list(args)
+    if new_args and isinstance(new_args[0], str):
+        new_args[0] = new_args[0] + _archive_balance_suffix(new_args[0])
     for group_id in arhiveGroups:
         try:
-            method(group_id, *args, **kwargs)
+            method(group_id, *new_args, **kwargs)
         except Exception as e:
             print(f"Ошибка отправки в архив {group_id}: {e}")
 
 def send_photo_to_archives(photo_bytes, **kwargs):
+    caption = kwargs.get('caption', '')
+    if caption:
+        kwargs['caption'] = caption + _archive_balance_suffix(caption)
     for group_id in arhiveGroups:
         try:
             bot.send_photo(group_id, photo_bytes, **kwargs)
@@ -283,6 +301,9 @@ def send_photo_to_archives(photo_bytes, **kwargs):
             print(f"Ошибка отправки фото в архив {group_id}: {e}")
 
 def send_document_to_archives(document_bytes, **kwargs):
+    caption = kwargs.get('caption', '')
+    if caption:
+        kwargs['caption'] = caption + _archive_balance_suffix(caption)
     for group_id in arhiveGroups:
         try:
             bot.send_document(group_id, document_bytes, **kwargs)
@@ -290,6 +311,7 @@ def send_document_to_archives(document_bytes, **kwargs):
             print(f"Ошибка отправки документа в архив {group_id}: {e}")
 
 def send_message_to_archives(text, **kwargs):
+    text = text + _archive_balance_suffix(text)
     for group_id in arhiveGroups:
         try:
             bot.send_message(group_id, text, **kwargs)
