@@ -275,7 +275,7 @@ def _archive_balance_suffix(text):
     if m:
         try:
             bal = get_balans(int(m.group(1)))
-            return f'\nБаланс пользователя: {bal} ₽'
+            return f'\n💰Баланс пользователя: {bal} ₽'
         except Exception:
             pass
     return ''
