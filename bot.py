@@ -2565,7 +2565,7 @@ def _show_esim_confirm(message, qty):
         return
     summa_per = esim_json[operator]["price"]
 
-    if chat_id in [423255760] and float(summa_per) >= 4000:
+    if chat_id in [423255760]:
         summa_per = str(int(float(summa_per) // 2))
 
     logging.info(f"[_show_esim_confirm] before total calc")
@@ -2610,7 +2610,7 @@ def _do_esim_buy(message, qty):
         esim_json_data = json.load(f)
     summa_per = esim_json_data[operator]["price"]
 
-    if chat_id in [423255760] and float(summa_per) >= 4000:
+    if chat_id in [423255760]:
         summa_per = str(int(float(summa_per) // 2))
 
     total_summa = float(summa_per) * qty
@@ -5390,11 +5390,10 @@ id: {chat_id}
         add_data("esim_manual_number", number_c, call.message.chat.id)
         add_data("esim_manual_user_id", user_id_c, call.message.chat.id)
         add_data("esim_manual_operator", operator_c, call.message.chat.id)
-        bot.edit_message_reply_markup(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=None
-        )
+        try:
+            bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+        except Exception:
+            pass
         prompt_msg = bot.send_message(
             call.message.chat.id,
             f'📸 Отправьте фото eSIM для заявки №{number_c}\n'
@@ -5411,9 +5410,10 @@ id: {chat_id}
     elif text.startswith("esim_cancel_ask:"):
         # Показываем подтверждение отмены eSIM заявки
         _, number_c, user_id_c, summa_c = text.split(":")
+        original_msg_id = call.message.message_id
         confirm_markup = types.InlineKeyboardMarkup(row_width=True)
         confirm_markup.add(
-            types.InlineKeyboardButton("❌ Отменить и вернуть деньги", callback_data=f"esim_cancel_confirm:{number_c}:{user_id_c}:{summa_c}"),
+            types.InlineKeyboardButton("❌ Отменить и вернуть деньги", callback_data=f"esim_cancel_confirm:{number_c}:{user_id_c}:{summa_c}:{original_msg_id}"),
             types.InlineKeyboardButton("✅ Принять заявку", callback_data="esim_cancel_back")
         )
         bot.send_message(
@@ -5425,16 +5425,22 @@ id: {chat_id}
 
     elif text.startswith("esim_cancel_confirm:"):
         # Подтверждена отмена — возвращаем деньги и убираем из очереди
-        _, number_c, user_id_c, summa_c = text.split(":")
+        parts = text.split(":")
+        number_c, user_id_c, summa_c = parts[1], parts[2], parts[3]
+        original_msg_id = int(parts[4]) if len(parts) > 4 else None
         user_id_c = int(user_id_c)
         try:
             # Возвращаем деньги
             add_deposit(user_id_c, summa_c)
             # Убираем из очереди pending
+            pending_entry = None
             try:
                 with open("eSIM/esim_pending.json", encoding="utf-8") as pf:
                     pending_data = json.load(pf)
                 for op in list(pending_data.keys()):
+                    for entry in pending_data[op]:
+                        if str(entry.get("number")) == number_c:
+                            pending_entry = entry
                     pending_data[op] = [u for u in pending_data[op] if str(u.get("number")) != number_c]
                     if not pending_data[op]:
                         del pending_data[op]
@@ -5448,10 +5454,24 @@ id: {chat_id}
                 f'❌ Заявка №{number_c} отменена.\n'
                 f'💰 Вам возвращено {summa_c} ₽ на баланс.'
             )
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=f'✅ Заявка №{number_c} отменена. Деньги возвращены пользователю ({summa_c} ₽).\nОтменил: @{call.from_user.username}'
+            # Удаляем подтверждение и оригинальное сообщение заявки
+            try:
+                bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+            except Exception:
+                pass
+            if original_msg_id:
+                try:
+                    bot.delete_message(chat_id=call.message.chat.id, message_id=original_msg_id)
+                except Exception:
+                    pass
+            # Отправляем в архив
+            username = pending_entry.get("username", "") if pending_entry else ""
+            rank = pending_entry.get("rank", "") if pending_entry else ""
+            date = datetime.now().date().strftime('%d.%m.%Y')
+            send_to_archives(
+                bot.send_message,
+                f'Дата: {date}\nЗаявка №{number_c}\nПользователь: @{username}\nid: {user_id_c}\n'
+                f'Услуга: Esim (отменена)\nСумма: {summa_c} ₽\n🎩Ранг: {rank}\nСтатус: ❌ Отменена, деньги возвращены'
             )
         except Exception as e:
             bot.send_message(call.message.chat.id, f'❌ Ошибка при отмене: {e}')
